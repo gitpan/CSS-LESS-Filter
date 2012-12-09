@@ -24,4 +24,4 @@ requires:
   Test::UseAllModules: 0.10
 resources:
   repository: https://github.com/charsbar/css_less_filter
-version: 0.01
+version: 0.02

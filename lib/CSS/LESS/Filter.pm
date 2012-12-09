@@ -5,7 +5,7 @@ use warnings;
 use Carp;
 use Parse::RecDescent;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 sub new {
   my $class = shift;
@@ -78,8 +78,8 @@ sub _apply {
         $str .= $ruleset;
       }
       else {
-        my $cur_id = (length $id ? "$id " : "") . "$part->{key}:";
-        $cur_id =~ s/\s+/ /gs;
+        (my $sep = $part->{sep}) =~ s/\s+//gs;
+        my $cur_id = (length $id ? "$id " : "") . "$part->{key}$sep";
         for (@{$self->{filters}}) {
           if (
             (!ref $_->[0] and $cur_id eq $_->[0]) or
@@ -133,7 +133,7 @@ ruleset: selectors brace_open (
   { debug($thisline, @item); $return = { key => $item[1], brace_open => $item[2], value => $item[3], brace_close => $item[4] } }
 
 at_rule: at_keyword sp (string | url | ident | parens | sp)(s) semicolon
-  { debug($thisline, @item); $return = join '', @item[1..2], @{$item[3]}, $item[4] }
+  { debug($thisline, @item); $return = {key => $item[1], sep => $item[2], value => join('', @{$item[3]}), semicolon => $item[4]} }
 
 selectors: (function|selector) (function | selector | parens | comments | ',' | sp)(s?)
   { debug($thisline, @item); $return = join '', $item[1], @{$item[2]} }
@@ -372,6 +372,15 @@ CSS::LESS::Filter - tweak CSS/LESS files such as of Twitter Bootstrap
   # (returning undef removes the declaration/ruleset entirely)
   $filter->add(qr/\.ie \{/ => undef);
   
+  # You can also tweak "@" rule, but take care: "@" rule may
+  # (and often) be seen several times in the same context.
+  # You most probably need to check its value in a callback.
+  $filter->add('@import' => sub {
+    my $value = shift;
+    return if $value eq q{"foo.less"}; # not to @import "foo.less";
+    $value; # preserve the rest
+  });
+  
   # parse LESS, apply filters, and return the modified LESS
   my $file = file('less/docs.less');
   my $less = $file->slurp;
@@ -396,10 +405,10 @@ Creates an object. May take filter settings (see below).
 
 Adds a filter. See SYNOPSIS for basic usage. Selectors are
 concatenated with a ' { ' (space, brace, space), and declaration
-property has a trailing ':' (colon). You can use regular expressions
-to match multiple selectors, though with some speed penalty.
-(Note that you may eventually need to escape '{' to suppress
-future warnings.)
+property has a trailing ':' (colon). @ rules have no trailing colon.
+You can use regular expressions to match multiple selectors, though
+with some speed penalty. (Note that you may eventually need to
+escape '{' to suppress future warnings.)
 
 =head2 process
 
