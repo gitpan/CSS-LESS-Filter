@@ -5,7 +5,7 @@ use warnings;
 use Carp;
 use Parse::RecDescent;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 sub new {
   my $class = shift;
@@ -21,9 +21,47 @@ sub new {
 }
 
 sub process {
-  my ($self, $less) = @_;
+  my ($self, $less, $opts) = @_;
 
-  $self->_apply($self->_parse($less), "");
+  my $mode = ($opts || {})->{mode} || 'warn';
+
+  $_->[2] = 0 for @{$self->{filters}}; # clear "used" flag.
+
+  my $res = $self->_apply($self->_parse($less), "");
+
+  for (@{$self->{filters}}) {
+    next if $_->[2];
+    if ($mode eq 'warn') {
+      carp "Filter '$_->[0]' ($_->[1]) is not used at all.";
+      next;
+    }
+    if ($mode eq 'append') {
+      my ($id, $filter) = ($_->[0], $_->[1]);
+      if (ref $id) {
+        carp "Can't append ambiguous '$id' ($filter).";
+        next;
+      }
+      my $type = substr($id, -1);
+      my $depth =()= $id =~ /\{/g;
+      my $closing_braces = '}' x $depth;
+      my $value = !ref $filter ? $filter : $filter->('');
+      $res .= "\n" if length $res && substr($res, -1) ne "\n";
+      if ($id eq '') {
+        $res .= "$value\n";
+      }
+      elsif ($type eq '{') { # ruleset
+        $res .= "$id\n$value";
+        $res .= "\n" if substr($res, -1) ne "\n";
+        $res .= "$closing_braces\n";
+      }
+      else { # declaration, at rule
+        $closing_braces = " $closing_braces" if $closing_braces;
+        $res .= "$id $value;$closing_braces\n";
+      }
+    }
+  }
+
+  $res;
 }
 
 sub add {
@@ -60,6 +98,7 @@ sub _apply {
         my $inside = $self->_apply($part->{value}, $new_id);
 
         for (@{$self->{filters}}) {
+          next if $_->[0] eq '';
           if (
             (!ref $_->[0] and $new_id eq $_->[0]) or
             (ref $_->[0] eq ref qr// and $new_id =~ /$_->[0]/)
@@ -70,6 +109,7 @@ sub _apply {
             elsif (ref $_->[1] eq ref sub {}) {
               $inside = $_->[1]->($inside);
             }
+            $_->[2] = 1;
           }
         }
         next unless defined $inside;
@@ -81,6 +121,7 @@ sub _apply {
         (my $sep = $part->{sep}) =~ s/\s+//gs;
         my $cur_id = (length $id ? "$id " : "") . "$part->{key}$sep";
         for (@{$self->{filters}}) {
+          next if $_->[0] eq '';
           if (
             (!ref $_->[0] and $cur_id eq $_->[0]) or
             (ref $_->[0] eq ref qr// and $cur_id =~ /$_->[0]/)
@@ -92,6 +133,7 @@ sub _apply {
               $part->{value} = $_->[1]->($part->{value});
             }
           }
+          $_->[2] = 1;
         }
         next unless defined $part->{value};
         $str .= join '', @$part{qw/key sep value semicolon/};
@@ -372,8 +414,8 @@ CSS::LESS::Filter - tweak CSS/LESS files such as of Twitter Bootstrap
   # (returning undef removes the declaration/ruleset entirely)
   $filter->add(qr/\.ie \{/ => undef);
   
-  # You can also tweak "@" rule, but take care: "@" rule may
-  # (and often) be seen several times in the same context.
+  # You can also tweak an "@" rule, but take care: the same "@" rule
+  # may (and often) be seen several times in the same context.
   # You most probably need to check its value in a callback.
   $filter->add('@import' => sub {
     my $value = shift;
@@ -384,7 +426,7 @@ CSS::LESS::Filter - tweak CSS/LESS files such as of Twitter Bootstrap
   # parse LESS, apply filters, and return the modified LESS
   my $file = file('less/docs.less');
   my $less = $file->slurp;
-  $file->save($filter->process($less));
+  $file->save($filter->process($less, {mode => 'append'}));
 
 =head1 DESCRIPTION
 
@@ -410,10 +452,33 @@ You can use regular expressions to match multiple selectors, though
 with some speed penalty. (Note that you may eventually need to
 escape '{' to suppress future warnings.)
 
+If you just want to append something at the end of a less file,
+pass an empty string as a selector.
+
+  # this comment will be appended at the end.
+  $filter->add('' => "// whatever you want to add\n");
+
 =head2 process
 
 takes LESS content, parses it to apply filters, and returns
-the result.
+the result. Optionally, you can pass a hash reference to change
+filter's behavior. As of version 0.03, only available option is
+C<mode>:
+
+=over 4
+
+=item mode => 'warn'
+
+L<CSS::LESS::Filter> warns if any of the filters are not used.
+Those unmatched filters will be ignored.
+
+=item mode => 'append'
+
+Under this mode, unmatched filters are used to append things at the
+end of the processed LESS. L<CSS::LESS::Filter> still warns if
+any filter that uses a regular expression fails.
+
+=back
 
 =head1 NOTE
 
