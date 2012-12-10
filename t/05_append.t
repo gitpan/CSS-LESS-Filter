@@ -22,8 +22,16 @@ LESS
     my $value = shift;
     return "// Added by CSS::LESS::Filter\n$value";
   });
-  my $got = $filter->process('', {mode => 'append'});
+  my $got = $filter->process(<<'LESS', {mode => 'append'});
+.bar {
+  baz: 'test';
+}
+LESS
+
   my $expected = <<'LESS';
+.bar {
+  baz: 'test';
+}
 .foo {
 // Added by CSS::LESS::Filter
 }

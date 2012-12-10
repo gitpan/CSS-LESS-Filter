@@ -5,7 +5,7 @@ use warnings;
 use Carp;
 use Parse::RecDescent;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 sub new {
   my $class = shift;
@@ -132,8 +132,8 @@ sub _apply {
             elsif (ref $_->[1] eq ref sub {}) {
               $part->{value} = $_->[1]->($part->{value});
             }
+            $_->[2] = 1;
           }
-          $_->[2] = 1;
         }
         next unless defined $part->{value};
         $str .= join '', @$part{qw/key sep value semicolon/};
